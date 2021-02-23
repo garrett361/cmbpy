@@ -11,14 +11,14 @@ import corner
 class cmb():
 
     """
-    class for generating power-law power spectra on a 2size*2size grid
+    class for generating power-law power spectra on a 2^(size_exponent) by 2^(size_exponent) grid
     currently only doing dimensions=2 case, but may generalize later
     """
 
-    def __init__(self, amplitude=1, power=1.75, size=100, dimensions=2):
+    def __init__(self, amplitude=1, power=1.75, size_exponent=3, dimensions=2):
         self.amplitude = amplitude
         self.power = power
-        self.size = 2*(size//2)  # rounding to nearest even number
+        self.size = 2**(size_exponent)  
         self.dimensions = dimensions
 
     # generating the spectrum
@@ -86,7 +86,7 @@ class cmb():
         plt.show()
         plt.close()
 
-    def get_pair_data(self, maxlen=10**3):
+    def get_pair_data(self, maxlen=(self.size/2)):
         """
         getting the various relevant data points from the position-space spectrum
         data points are tuples containing an array with the two signals
@@ -271,7 +271,7 @@ class cmb():
         plt.close()
 
 
-c = cmb(size=300, amplitude=1, power=1.2)
+c = cmb(size_exponent=4, amplitude=1, power=1.2)
 c.generate()
 c.spectrumplot()
 c.hist()
