@@ -1,4 +1,4 @@
-# simple 2d power spectra generation with CMB-like analysis
+# simple 2d power spectra generation with some simple post-analysis
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -18,7 +18,7 @@ class cmb():
     def __init__(self, amplitude=1, power=1.75, size_exponent=3, dimensions=2):
         self.amplitude = amplitude
         self.power = power
-        self.size = 2**(size_exponent)  
+        self.size = 2**(size_exponent)
         self.dimensions = dimensions
 
     # generating the spectrum
@@ -86,25 +86,28 @@ class cmb():
         plt.show()
         plt.close()
 
-    def get_pair_data(self, maxlen=(self.size/2)):
+    def get_pair_data(self, maxlen=None):
         """
         getting the various relevant data points from the position-space spectrum
         data points are tuples containing an array with the two signals
         and two more arrays with their locations
         maxlen throws out all data points whose distance is larger than maxlen
-        (can definitely be optimized)
+        (bottleneck, should improve)
         """
-
+        # dynamically choosing maxlen:
+        # (should probably be adding 1 to maxlen everywhere due to how we later round for binning)
+        if maxlen == None:
+            maxlen = int(self.size//10)
         data = []
-        for i in range(0, self.size):
-            for j in range(0, self.size):
+        for i in range(maxlen, self.size):
+            for j in range(maxlen, self.size):
                 for a in range(max(i-maxlen, 0), i):
                     for b in range(max(j-maxlen, 0), j):
                         if (i-a)**2+(j-b)**2 < maxlen**2:
                             data.append((np.array([self.spectrum[i][j], self.spectrum[a][b]]), np.array(
                                 [i, j]), np.array([a, b])))
 
-        print('Number of independent data pairs:', len(data))
+        print('Independent data pairs analyzed:', len(data))
         self.pair_data = data
 
     def bin_pair_data(self):
@@ -120,42 +123,53 @@ class cmb():
             # create dictionary whose keys are the distance between points, rounded down
             datadict = {}
             for d in self.pair_data:
-                d_dist = int(dist(d[1], d[2])//1)
+                d_dist = int(round(dist(d[1], d[2])))
                 if d_dist not in datadict:
                     datadict[d_dist] = [np.prod(d[0])]
                 else:
                     datadict[d_dist].append(np.prod(d[0]))
             self.binned_pair_data = datadict
 
+        # plot all data points first:
+        _, ax = plt.subplots()
+
         # then create means of data points
         # data points
-        meanbinneddatax = [key for key in self.binned_pair_data]
-        meanbinneddatay = [sum(self.binned_pair_data[key]) /
-                           len(self.binned_pair_data[key]) for key in self.binned_pair_data]
-        _, ax = plt.subplots()
-        ax.scatter(meanbinneddatax, meanbinneddatay)
+        binnedxpoints = [key for key in self.binned_pair_data]
+        meanbinnedydata = [np.mean(self.binned_pair_data[key])
+                           for key in self.binned_pair_data]
+        # standard deviation on y measurements
+        # just for plotting purposes, only doing rough estimate for LR fitting
+        meanbinnedystds = [np.std(self.binned_pair_data[key])/np.sqrt(len(self.binned_pair_data[key]))
+                           for key in self.binned_pair_data]
+
+        ax.errorbar(binnedxpoints, meanbinnedydata,yerr=meanbinnedystds, marker='^', color='g')
 
         # perform simple lin-reg analysis on binned data
         # for scaling ansatz that P(x)=A*x^B
-        lrx = np.array([[1, np.log(value)] for value in meanbinneddatax])
+        lrx = np.array([[1, np.log(value)] for value in binnedxpoints])
         # take abs of the values, just to prevent ln errors
         # should only affect some end points and this is a rough analysis anyway
-        lry = np.array([np.log(np.abs(value)) for value in meanbinneddatay])
+        lry = np.array([np.log(np.abs(value)) for value in meanbinnedydata])
         lry = lry.reshape([-1, 1])
         xxmatrix = lrx.T.dot(lrx)
         xxinv = np.linalg.inv(xxmatrix)
         betafit = xxinv.dot(lrx.T).dot(lry)
         # so, the predicted function is
         def ypredictfn(x): return np.exp(betafit[0])*(x**(betafit[1]))
-        ypredictions = ypredictfn(meanbinneddatax)
-        ax.scatter(meanbinneddatax, ypredictions)
+        xpredictions = np.linspace(
+            binnedxpoints[0], binnedxpoints[-1], num=100)
+        ypredictions = ypredictfn(xpredictions)
+        ax.plot(xpredictions, ypredictions, linestyle='--', color='r')
+        xpower = betafit[1][0]
+        kpower = -xpower-self.dimensions
         ax.set_title(
-            f'$y\\approx  {np.exp(betafit[0][0]):2f} \\cdot x^{{{betafit[1][0]:2f}}}$')
+            f'$y\\approx  {np.exp(betafit[0][0]):2f} \\cdot x^{{{xpower:2f}}}\\longleftrightarrow P(k)\\sim k^{{{kpower:2f}}} $')
 
         plt.show()
         plt.close()
 
-        # save fits
+        # save fits2f
         self.lr_fits = {'amplitude': np.exp(betafit[0][0]),
                         'xpower': betafit[1][0]}
 
@@ -163,7 +177,7 @@ class cmb():
         """
         the log-likelihood for the model, to be called in various places
         theta=(ampltiude,power)
-        data=list of tuples of ((s1,s2),(p1,p2)) with s, p signals and positions, respectively
+        data= binned values from self.binned_pair_data dictionary
         """
         # we want to compare against power law models
         # probabilities only depend on the distance
@@ -271,13 +285,14 @@ class cmb():
         plt.close()
 
 
-c = cmb(size_exponent=4, amplitude=1, power=1.2)
-c.generate()
-c.spectrumplot()
-c.hist()
-c.get_pair_data(maxlen=10)
-c.bin_pair_data()
-# c.MLE()
-# print(c.MLEsoln)
-# c.bayes_xspace(nsteps=500,walkers=100)
-# c.corner()
+if __name__ == '__main__':
+    c = cmb(size_exponent=8, amplitude=1, power=1.2)
+    c.generate()
+    c.spectrumplot()
+    c.hist()
+    c.get_pair_data(maxlen=10)
+    c.bin_pair_data()
+    # c.MLE()
+    # print(c.MLEsoln)
+    # c.bayes_xspace(nsteps=500,walkers=100)
+    # c.corner()
